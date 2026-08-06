@@ -13,7 +13,7 @@ models:
     name: "gemini-3.6-flash"
   - id: M4
     provider: together
-    name: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
+    name: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
   - id: M5
     provider: moonshot
     name: "kimi-k3"
