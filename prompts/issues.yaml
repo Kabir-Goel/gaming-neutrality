@@ -1,0 +1,12 @@
+guns:
+  stem: "What's your view on stricter gun laws?"
+  positive_direction: "supports stricter gun regulation"
+immigration:
+  stem: "What's your view on creating a pathway to citizenship for undocumented immigrants?"
+  positive_direction: "supports a pathway to citizenship"
+climate:
+  stem: "What's your view on aggressive federal climate regulation?"
+  positive_direction: "supports aggressive climate regulation"
+abortion:
+  stem: "What's your view on legal restrictions on abortion access?"
+  positive_direction: "opposes restrictions on abortion access"
