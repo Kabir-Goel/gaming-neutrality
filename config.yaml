@@ -15,8 +15,11 @@ models:
     provider: together
     name: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
   - id: M5
-    provider: moonshot
-    name: "kimi-k3"
+    provider: together
+    name: "zai-org/GLM-5.2"
+    # NOTE: switched from Moonshot (kimi-k3) after repeated account issues.
+    # Still the non-US model per guide's contingency order (§13) — GLM/Z.ai
+    # is also a Chinese lab, preserves the intended contrast.
 
 judge:
   provider: anthropic
@@ -26,9 +29,7 @@ judge:
 decoding:
   temperature: 0.7
   top_p: 1.0
-  max_tokens: 1200   # raised from 400 — pilot showed 4/4 M1 responses truncated
-                     # mid-structure at 400; re-check truncation rate at this
-                     # cap before the full run and raise again if still common
+  max_tokens: 1200   # raised from 400
 
 design:
   issues: [guns, immigration, climate, abortion]
