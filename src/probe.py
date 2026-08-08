@@ -279,6 +279,7 @@ def main() -> int:
         {item["id"]: item["prompt_hash"] for item in probe_grid},
         expected_config,
         PROBE_PATH,
+        label="probe row",
     )
     done = {record["id"] for record in records}
 

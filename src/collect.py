@@ -61,7 +61,7 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
                 records.append(json.loads(line))
             except json.JSONDecodeError:
                 print(
-                    f"[collect] skipping unparseable {path.name} line {lineno}",
+                    f"[quarantine] skipping unparseable {path.name} line {lineno}",
                     file=sys.stderr,
                 )
     return records
@@ -80,6 +80,7 @@ def config_hash(
     name: str,
     decoding: dict[str, Any],
     openai_reasoning_effort: str | None = None,
+    anthropic_effort: str | None = None,
 ) -> str:
     """Hash the model and decoding settings this run will send to `provider`.
 
@@ -89,6 +90,10 @@ def config_hash(
     also the more useful comparison: a parameter the endpoint refuses is
     provider behaviour, recorded per row in effective_*, whereas a change
     here is a deliberate edit to the experiment.
+
+    Callers running a different job against the same models pass their own
+    settings — judge.py passes models.JUDGE_EFFORT — so a judge row records
+    the condition it actually ran under rather than the collection default.
 
     The configured model name is included because rows are keyed by model_id
     (M1..M5), which is a stable label over a swappable model — repointing M1
@@ -104,7 +109,11 @@ def config_hash(
         "max_tokens": decoding["max_tokens"],
     }
     if provider == "anthropic":
-        fields["effort"] = models.ANTHROPIC_EFFORT
+        # Note the asymmetry with openai_reasoning_effort below: that one is
+        # opt-in, so None means "omit the field". Effort is always sent on
+        # Anthropic calls, so None here means "the collection default" —
+        # omitting it would silently invalidate every stored Anthropic row.
+        fields["effort"] = anthropic_effort or models.ANTHROPIC_EFFORT
     elif provider == "google":
         fields["thinking_level"] = models.GOOGLE_THINKING_LEVEL
     if models.disables_reasoning(provider, name):
@@ -121,6 +130,7 @@ def quarantine_stale(
     expected_prompt: dict[str, str],
     expected_config: dict[str, str],
     source_path: Path,
+    label: str = "response",
 ) -> list[dict[str, Any]]:
     """Move responses that no longer match the current run into stale.jsonl.
 
@@ -134,7 +144,10 @@ def quarantine_stale(
 
     Shared by collect.py and probe.py: `expected_prompt` maps record id to the
     prompt hash the current run would send, `expected_config` maps model id to
-    its config hash, and `source_path` is the file rewritten in place.
+    its config hash, and `source_path` is the file rewritten in place. `label`
+    names the row type in the warning: three tools share this function, and a
+    message that always said "response" sent one investigation looking at the
+    wrong file.
 
     Returns the surviving records.
     """
@@ -192,15 +205,15 @@ def quarantine_stale(
     examples = ", ".join(record["id"] for record, *_ in stale[:4])
     more = f" (+{len(stale) - 4} more)" if len(stale) > 4 else ""
     print(
-        f"[collect] WARNING: {len(stale)} stale response(s) quarantined -> "
+        f"[quarantine] WARNING: {len(stale)} stale {label}(s) quarantined -> "
         f"{STALE_PATH.relative_to(ROOT)}",
         file=sys.stderr,
     )
     for reason, count in reasons.most_common():
-        print(f"[collect]   {reason}: {count}", file=sys.stderr)
-    print(f"[collect]   e.g. {examples}{more}", file=sys.stderr)
+        print(f"[quarantine]   {reason}: {count}", file=sys.stderr)
+    print(f"[quarantine]   e.g. {examples}{more}", file=sys.stderr)
     print(
-        "[collect]   excluded from the done set; they will be recollected "
+        "[quarantine]   excluded from the done set; they will be recollected "
         "if the current filters select them",
         file=sys.stderr,
     )
