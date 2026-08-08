@@ -71,6 +71,12 @@ TOGETHER_REASONING_MODELS = ("zai-org/GLM",)
 # the top level. GA, no beta header; the API default is "high".
 ANTHROPIC_EFFORT = "low"
 
+# Judging is a different job from generating the corpus. There is no persona
+# or frame contrast to protect here, so the reason to keep effort down does
+# not apply, and coding quality is worth more than reasoning tokens. Callers
+# opt in by passing anthropic_effort=JUDGE_EFFORT; nothing inherits it.
+JUDGE_EFFORT = "high"
+
 # Gemini bills reasoning tokens against max_output_tokens, so a thinking model
 # can exhaust the budget before finishing the visible answer. gemini-3.6-flash
 # rejects thinking_budget=0 outright (400 INVALID_ARGUMENT); thinking_level
@@ -360,8 +366,20 @@ def generate(
     temperature: float,
     top_p: float,
     max_tokens: int,
+    openai_reasoning_effort: str | None = None,
+    anthropic_effort: str | None = None,
 ) -> dict[str, Any]:
     """Send a single-turn prompt to `model` and return a normalized record.
+
+    `openai_reasoning_effort` is opt-in and applies only to the openai
+    provider. It exists for short-output callers: at a small max_tokens the
+    model can spend the whole budget on reasoning and return empty text.
+    Callers that leave it None get exactly the previous behaviour.
+
+    `anthropic_effort` overrides ANTHROPIC_EFFORT for one call, so judging can
+    run deeper than corpus collection without the two sharing a constant.
+    Note that decoding state generally is already per (provider, model): what
+    one model refuses is never applied to another.
 
     Returns keys: text, model_version, finish_reason, latency_ms. Retries up
     to 5 attempts with exponential backoff on timeouts, rate limits and 5xx;
@@ -387,8 +405,9 @@ def generate(
                 # JSON; _post_anthropic nests it under output_config. Kept out
                 # of _TUNABLE for the same reason as thinking_level: a model
                 # that refuses it should fail loudly rather than silently
-                # reverting to the provider default.
-                "effort": ANTHROPIC_EFFORT,
+                # reverting to the provider default. Callers that pass an
+                # explicit effort (the judge) override the collection default.
+                "effort": anthropic_effort or ANTHROPIC_EFFORT,
             },
             lambda **p: _post_anthropic(model, prompt, **p),
         )
@@ -436,6 +455,11 @@ def generate(
         # Plain bool so it lands in _SENT (and the response rows) as JSON;
         # _post_openai_compatible nests it into extra_body.
         openai_params["reasoning_enabled"] = False
+    if provider == "openai" and openai_reasoning_effort is not None:
+        # A first-class SDK parameter, so it goes straight through rather
+        # than via extra_body. Only openai: together and moonshot share this
+        # code path but not this parameter.
+        openai_params["reasoning_effort"] = openai_reasoning_effort
     response, latency_ms = _call(
         key,
         openai_params,
@@ -474,6 +498,8 @@ def effective_params(provider: str, model: str) -> dict[str, Any]:
         "effort": accepted.get("effort"),
         # Together's reasoning models only; None everywhere else.
         "reasoning_enabled": accepted.get("reasoning_enabled"),
+        # OpenAI only, and only when a caller opts in; None otherwise.
+        "reasoning_effort": accepted.get("reasoning_effort"),
         "dropped": sorted(_DROPPED.get(key, ())),
         "renamed": dict(_RENAMED.get(key, {})),
         "observed": sent is not None,

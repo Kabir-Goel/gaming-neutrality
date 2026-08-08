@@ -75,7 +75,12 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> None:
             handle.flush()
 
 
-def config_hash(provider: str, name: str, decoding: dict[str, Any]) -> str:
+def config_hash(
+    provider: str,
+    name: str,
+    decoding: dict[str, Any],
+    openai_reasoning_effort: str | None = None,
+) -> str:
     """Hash the model and decoding settings this run will send to `provider`.
 
     Hashes the *requested* configuration rather than what a provider turns
@@ -104,14 +109,18 @@ def config_hash(provider: str, name: str, decoding: dict[str, Any]) -> str:
         fields["thinking_level"] = models.GOOGLE_THINKING_LEVEL
     if models.disables_reasoning(provider, name):
         fields["reasoning_enabled"] = False
+    if provider == "openai" and openai_reasoning_effort is not None:
+        # Opt-in, so callers that do not pass it keep their existing hashes.
+        fields["reasoning_effort"] = openai_reasoning_effort
     payload = json.dumps(fields, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def quarantine_stale(
-    grid: list[dict[str, Any]],
-    responses: list[dict[str, Any]],
+    records: list[dict[str, Any]],
+    expected_prompt: dict[str, str],
     expected_config: dict[str, str],
+    source_path: Path,
 ) -> list[dict[str, Any]]:
     """Move responses that no longer match the current run into stale.jsonl.
 
@@ -123,13 +132,16 @@ def quarantine_stale(
     stale.jsonl rather than deleted, and dropping them from the done set is
     what causes this run to recollect them.
 
-    Returns the surviving responses.
+    Shared by collect.py and probe.py: `expected_prompt` maps record id to the
+    prompt hash the current run would send, `expected_config` maps model id to
+    its config hash, and `source_path` is the file rewritten in place.
+
+    Returns the surviving records.
     """
-    expected_prompt = {item["id"]: item["prompt_hash"] for item in grid}
     fresh: list[dict[str, Any]] = []
     stale: list[tuple[dict[str, Any], str | None, str | None, list[str]]] = []
 
-    for record in responses:
+    for record in records:
         prompt_want = expected_prompt.get(record["id"])
         config_want = expected_config.get(record.get("model_id"))
         reasons: list[str] = []
@@ -170,11 +182,11 @@ def quarantine_stale(
 
     # Rewrite via a temp file so an interrupted rewrite cannot truncate the
     # surviving responses; the quarantine copy is already durable by now.
-    tmp = RESPONSES_PATH.with_name(RESPONSES_PATH.name + ".tmp")
+    tmp = source_path.with_name(source_path.name + ".tmp")
     with tmp.open("w") as handle:
         for record in fresh:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-    tmp.replace(RESPONSES_PATH)
+    tmp.replace(source_path)
 
     reasons = collections.Counter(" + ".join(r) for *_, r in stale)
     examples = ", ".join(record["id"] for record, *_ in stale[:4])
@@ -318,7 +330,12 @@ def main() -> int:
         model["id"]: config_hash(model["provider"], model["name"], decoding)
         for model in config["models"]
     }
-    responses = quarantine_stale(grid, read_jsonl(RESPONSES_PATH), expected_config)
+    responses = quarantine_stale(
+        read_jsonl(RESPONSES_PATH),
+        {item["id"]: item["prompt_hash"] for item in grid},
+        expected_config,
+        RESPONSES_PATH,
+    )
     done = {record["id"] for record in responses}
     pending = [
         item for item in grid if item["id"] not in done and selected(item, args)
