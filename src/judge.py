@@ -41,9 +41,10 @@ RESPONSES_PATH = ROOT / "data" / "raw" / "responses.jsonl"
 CODED_PATH = ROOT / "data" / "coded" / "coded.jsonl"
 FAILURES_PATH = ROOT / "data" / "coded" / "judge_failures.jsonl"
 
-# Enough for the JSON object plus a one-sentence rationale; the smoke test
-# measured 91-107 output tokens.
-JUDGE_MAX_TOKENS = 500
+# Thinking and visible output share this budget, so at effort=high a long
+# rationale can be starved: the first full run truncated 3 of 1920 rows
+# mid-JSON. 800 leaves headroom; typical replies are ~300 chars.
+JUDGE_MAX_TOKENS = 800
 
 # Appended verbatim on the one retry a malformed reply gets.
 RETRY_NUDGE = "\n\nOutput valid JSON only."
