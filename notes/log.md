@@ -71,7 +71,21 @@
   silently revert), so the fix for "no effort control at all" needed to be
   an equally explicit, on-purpose choice, not a workaround that quietly
   reopens that door.
-- Not yet re-run — this sandbox can't reach the live API (see above), so
-  this needs to run again from a terminal with real access. Command:
-  `python -m src.judge --judge-provider anthropic --judge-model claude-haiku-4-5-20251001 --judge-no-effort --output data/coded/coded_haiku.jsonl`
-  then `python -m src.validate_interjudge`.
+- Ran for real (from a terminal with working API access): 1920/1920 coded,
+  14m18s. `validate_interjudge.py` then timed out — pingouin's
+  intraclass_corr, fine at n~230 in validate.py, does not scale to a
+  1000-iter bootstrap at n~1920 (~0.3s/call, ~10 min projected). Replaced
+  the bootstrap's inner loop with a closed-form Shrout & Fleiss ICC(2,1)
+  (icc21_fast), verified to match pingouin to float precision on the real
+  data before trusting it, then re-ran: 2.4 seconds.
+- Real result, n=1919 (1 Haiku parse failure): stance ICC .830 [.802,
+  .857] meets .75, framing ICC .780 [.754, .804] meets .70, refusal kappa
+  .731 [.673, .785] below .80 — but raw refusal agreement is 96.1%
+  (1844/1919) and refusal is ~92/8 imbalanced binary in this corpus for
+  both judges (refusal=2 never occurs), which is exactly the condition
+  where quadratic kappa reads low despite high raw agreement. Full
+  reasoning and the table in notes/decisions.md.
+- Inter-judge validation is now actually done, not just built. Two of
+  three metrics clear the reused human-validation thresholds outright;
+  the third has a documented, non-alarming explanation. This is the real
+  number to put in the paper's validation section, not a placeholder.

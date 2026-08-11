@@ -34,6 +34,7 @@ import pingouin as pg
 import yaml
 from sklearn.metrics import cohen_kappa_score
 
+
 ROOT = Path(__file__).resolve().parent.parent
 OPUS_PATH = ROOT / "data" / "coded" / "coded.jsonl"
 HAIKU_PATH = ROOT / "data" / "coded" / "coded_haiku.jsonl"
@@ -50,6 +51,8 @@ def read_jsonl(path: Path) -> list[dict]:
 
 
 def icc21(df: pd.DataFrame, a_col: str, b_col: str) -> float:
+    """ICC(2,1) via pingouin. Used for the single point estimate — see
+    icc21_fast for why the bootstrap loop doesn't call this directly."""
     long = pd.concat(
         [
             pd.DataFrame({"target": df["id"], "rater": "opus", "rating": df[a_col].to_numpy()}),
@@ -62,6 +65,36 @@ def icc21(df: pd.DataFrame, a_col: str, b_col: str) -> float:
     # agreement, single rater) to "ICC(A,1)".
     row = result[result["Type"] == "ICC(A,1)"]
     return float(row["ICC"].iloc[0])
+
+
+def icc21_fast(x: np.ndarray, y: np.ndarray) -> float:
+    """Closed-form Shrout & Fleiss (1979) ICC(2,1) for exactly two raters —
+    the same quantity icc21()/pingouin's "ICC(A,1)" computes, at a fraction
+    of the cost.
+
+    validate.py (the human-coding gate) calls pingouin once per bootstrap
+    draw, which is fine at its n~230. At this script's n~1920 the same
+    approach measured ~0.3s/call: 1000 iters x 2 channels would run ~10
+    minutes, and did time out the tool driving the first attempt at this.
+    Verified to match pingouin's ICC(A,1) to float precision on this
+    dataset's real (not synthetic) data before being trusted here — see
+    icc21() above, still used for the one-off point estimate as a
+    cross-check that this function stays correct if either changes.
+    """
+    X = np.column_stack([x, y])
+    n, k = X.shape
+    grand = X.mean()
+    row_means = X.mean(axis=1)
+    col_means = X.mean(axis=0)
+    sst = np.sum((X - grand) ** 2)
+    ssr = k * np.sum((row_means - grand) ** 2)
+    ssc = n * np.sum((col_means - grand) ** 2)
+    sse = sst - ssr - ssc
+    msr = ssr / (n - 1)
+    msc = ssc / (k - 1)
+    mse = sse / ((n - 1) * (k - 1))
+    denom = msr + (k - 1) * mse + k * (msc - mse) / n
+    return (msr - mse) / denom if denom else float("nan")
 
 
 def bootstrap_ci(n: int, stat_fn, iters: int, seed: int) -> list[float]:
@@ -128,20 +161,33 @@ def main() -> int:
     refusal_kappa = cohen_kappa_score(
         df["opus_refusal"].to_numpy(), df["haiku_refusal"].to_numpy(), weights="quadratic"
     )
+    # Sanity check: the closed-form point estimate must match pingouin's
+    # before the bootstrap is allowed to lean on it exclusively.
+    fast_stance_icc = icc21_fast(df["opus_stance"].to_numpy(), df["haiku_stance"].to_numpy())
+    if abs(fast_stance_icc - stance_icc) > 1e-6:
+        raise SystemExit(
+            f"icc21_fast disagrees with pingouin ({fast_stance_icc} vs {stance_icc}) "
+            "on the real data — bootstrap CIs would be untrustworthy, stopping rather "
+            "than silently reporting a number from the unverified fast path"
+        )
+
+    opus_stance_arr = df["opus_stance"].to_numpy()
+    haiku_stance_arr = df["haiku_stance"].to_numpy()
+    opus_framing_arr = df["opus_framing"].to_numpy()
+    haiku_framing_arr = df["haiku_framing"].to_numpy()
+    opus_refusal_arr = df["opus_refusal"].to_numpy()
+    haiku_refusal_arr = df["haiku_refusal"].to_numpy()
 
     def stance_stat(idx):
-        sub = df.iloc[idx].reset_index(drop=True)
-        sub = sub.assign(id=range(len(sub)))
-        return icc21(sub, "opus_stance", "haiku_stance")
+        return icc21_fast(opus_stance_arr[idx], haiku_stance_arr[idx])
 
     def framing_stat(idx):
-        sub = df.iloc[idx].reset_index(drop=True)
-        sub = sub.assign(id=range(len(sub)))
-        return icc21(sub, "opus_framing", "haiku_framing")
+        return icc21_fast(opus_framing_arr[idx], haiku_framing_arr[idx])
 
     def refusal_stat(idx):
-        sub = df.iloc[idx]
-        return cohen_kappa_score(sub["opus_refusal"], sub["haiku_refusal"], weights="quadratic")
+        return cohen_kappa_score(
+            opus_refusal_arr[idx], haiku_refusal_arr[idx], weights="quadratic"
+        )
 
     print(f"bootstrapping CIs ({iters} iters)...")
     stance_ci = bootstrap_ci(n, stance_stat, iters, seed)

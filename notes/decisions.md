@@ -86,3 +86,31 @@ by a human. Every stance/framing/refusal number in this project — the
 judge's, and by extension the ADG results built on it — reflects
 LLM-on-LLM agreement, not human-verified ground truth. This should be
 named explicitly as a limitation, not folded into general methods text.
+
+**Result (2026-08-11, full corpus, n=1919 of 1920 — one Haiku parse
+failure excluded).** Haiku 4.5 has no effort/extended-thinking control at
+all (`judge.py --judge-no-effort` added to omit the field rather than send
+an unsupported level — see the commit for that fix). With that resolved,
+the real run:
+
+| metric | value | 95% CI | threshold | result |
+|---|---|---|---|---|
+| stance ICC(2,1) | 0.830 | [0.802, 0.857] | ≥0.75 | meets |
+| framing ICC(2,1) | 0.780 | [0.754, 0.804] | ≥0.70 | meets |
+| refusal kappa (quadratic) | 0.731 | [0.673, 0.785] | ≥0.80 | below |
+
+Stance and framing both clear the reused human-validation thresholds.
+Refusal doesn't, but the raw confusion matrix is worth reading before
+calling that a real disagreement: Opus and Haiku's refusal calls agree on
+1844/1919 rows (96.1% raw agreement), and refusal is effectively binary in
+this corpus (0 vs. 1; refusal=2 never occurs for either judge, and the
+marginal split is ~92/8 for both). Quadratic-weighted kappa is well known
+to look weak on an imbalanced binary variable even at high raw agreement,
+because the correction for chance agreement is large when one class
+dominates — so "below 0.80" here reads more like "kappa's known behavior
+on an imbalanced class" than "the judges can't agree on refusal." Report
+both the kappa and the raw agreement rate together in the paper so this
+isn't misread as a bigger problem than it is.
+
+Full numbers: `data/scores/interjudge_agreement.json`. Calibration plot:
+`figures/F6_interjudge_calibration.png`.

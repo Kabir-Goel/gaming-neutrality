@@ -1,0 +1,27 @@
+{
+  "method": "inter_judge_opus_vs_haiku",
+  "not_human_validated": true,
+  "n": 1919,
+  "coverage_note": "1919/1920 responses have a Haiku score (partial run) \u2014 per-model: {'M1': 384, 'M2': 384, 'M3': 384, 'M4': 383, 'M5': 384}",
+  "stance_icc": 0.8296656122327623,
+  "stance_icc_ci": [
+    0.8016329345231784,
+    0.8569997645468812
+  ],
+  "framing_icc": 0.7798155435345241,
+  "framing_icc_ci": [
+    0.7535270257175947,
+    0.8038003008509474
+  ],
+  "refusal_kappa": 0.7312791616021868,
+  "refusal_kappa_ci": [
+    0.6732750144299922,
+    0.7847253811256171
+  ],
+  "thresholds_reused_from_config": {
+    "stance_icc": 0.75,
+    "framing_icc": 0.7,
+    "refusal_kappa": 0.8
+  },
+  "meets_thresholds": false
+}
