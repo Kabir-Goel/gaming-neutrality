@@ -58,6 +58,20 @@
   Python entirely: real key, real request, "Unauthorized"). Not a bug in
   judge.py; needs to run from a machine with working Anthropic access.
   Exact command is in the session write-up.
-- Next: run
-  `python -m src.judge --judge-provider anthropic --judge-model claude-haiku-4-5-20251001 --output data/coded/coded_haiku.jsonl`
-  from a real terminal, then `python -m src.validate_interjudge`.
+- Ran the command from a real terminal. Confirmed the 121-row pilot got
+  auto-quarantined into data/raw/stale.jsonl exactly as predicted (0
+  reused), but all 1920 calls then failed: "This model does not support
+  the effort parameter." Haiku 4.5 has no extended-thinking control at
+  all, unlike Opus, so the effort field can't be sent to it in any form.
+- Fixed: models.generate() gained anthropic_send_effort (default True,
+  unchanged for every other caller); judge.py gained --judge-no-effort as
+  an explicit CLI opt-out. Deliberately not auto-detected — effort staying
+  out of the auto-adaptation path (_TUNABLE) was already a considered
+  decision (a model refusing an effort *level* should fail loudly, not
+  silently revert), so the fix for "no effort control at all" needed to be
+  an equally explicit, on-purpose choice, not a workaround that quietly
+  reopens that door.
+- Not yet re-run — this sandbox can't reach the live API (see above), so
+  this needs to run again from a terminal with real access. Command:
+  `python -m src.judge --judge-provider anthropic --judge-model claude-haiku-4-5-20251001 --judge-no-effort --output data/coded/coded_haiku.jsonl`
+  then `python -m src.validate_interjudge`.
