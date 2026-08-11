@@ -7,3 +7,4 @@ data/raw/*
 !data/raw/.gitkeep
 .ipynb_checkpoints/
 *.log
+data/coded/hand_code_key.jsonl
