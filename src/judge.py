@@ -131,7 +131,12 @@ def selected(item: dict[str, Any], args: argparse.Namespace) -> bool:
 
 
 def judge_one(
-    item: dict[str, Any], judge: dict[str, Any], decoding: dict[str, Any], cfg_hash: str
+    item: dict[str, Any],
+    judge: dict[str, Any],
+    decoding: dict[str, Any],
+    cfg_hash: str,
+    coded_path: Path,
+    failures_path: Path,
 ) -> bool:
     """Code one response and append the result. Returns True on success.
 
@@ -169,7 +174,7 @@ def judge_one(
                 scores = parse_scores(result["text"])
         except Exception as exc:  # noqa: BLE001 - a dead call must not stop the run
             append_jsonl(
-                FAILURES_PATH,
+                failures_path,
                 {
                     "id": item["id"],
                     "provider": provider,
@@ -182,7 +187,7 @@ def judge_one(
             return False
 
     append_jsonl(
-        CODED_PATH,
+        coded_path,
         {
             "id": item["id"],
             "stance": scores["stance"] if scores else None,
@@ -219,13 +224,37 @@ def main() -> int:
     # and file order alone yields an almost entirely neutral/audit sample.
     parser.add_argument("--persona", help="restrict to one persona, e.g. C")
     parser.add_argument("--frame", help="restrict to one frame, e.g. A")
+    # config.yaml's judge is frozen once the main run starts (build guide
+    # §4.1), so a second judge for inter-judge reliability has to be an
+    # override here rather than an edit to the frozen file. Output path
+    # moves with it so a second-judge run can never land in coded.jsonl.
+    parser.add_argument(
+        "--judge-provider", help="override config.judge.provider, e.g. anthropic"
+    )
+    parser.add_argument(
+        "--judge-model", help="override config.judge.name, e.g. claude-haiku-4-5-20251001"
+    )
+    parser.add_argument(
+        "--output", help="override the coded-output path (default data/coded/coded.jsonl)"
+    )
     args = parser.parse_args()
 
     config = yaml.safe_load((ROOT / "config.yaml").read_text())
     issues = yaml.safe_load((ROOT / "prompts" / "issues.yaml").read_text())
     rubric = (ROOT / "prompts" / "judge_rubric.md").read_text()
-    judge = config["judge"]
+    judge = dict(config["judge"])
+    if args.judge_provider:
+        judge["provider"] = args.judge_provider
+    if args.judge_model:
+        judge["name"] = args.judge_model
     by_id = {model["id"]: model for model in config["models"]}
+
+    coded_path = Path(args.output).resolve() if args.output else CODED_PATH
+    failures_path = (
+        coded_path.parent / f"{coded_path.stem}_failures.jsonl"
+        if args.output
+        else FAILURES_PATH
+    )
 
     args.model_ids = None
     if args.model is not None:
@@ -290,14 +319,14 @@ def main() -> int:
     )
     expected_config = {model_id: judge_hash for model_id in by_id}
 
-    CODED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    coded_path.parent.mkdir(parents=True, exist_ok=True)
     coded = quarantine_stale(
-        read_jsonl(CODED_PATH),
+        read_jsonl(coded_path),
         {item["id"]: item["prompt_hash"] for item in work},
         # Coded rows carry no model_id: every row is judged by the same judge,
         # so they all map to the one hash.
         {**expected_config, None: judge_hash},
-        CODED_PATH,
+        coded_path,
         label="coded row",
     )
     done = {record["id"] for record in coded}
@@ -327,7 +356,8 @@ def main() -> int:
         f"{len(pending)} to judge{scope}\n"
         f"judge: {judge['provider']}/{judge['name']} "
         f"effort={models.JUDGE_EFFORT} max_tokens={JUDGE_MAX_TOKENS} "
-        f"({MAX_PER_PROVIDER} concurrent)"
+        f"({MAX_PER_PROVIDER} concurrent)\n"
+        f"output: {coded_path.relative_to(ROOT) if coded_path.is_relative_to(ROOT) else coded_path}"
     )
     if not pending:
         return 0
@@ -335,7 +365,7 @@ def main() -> int:
     failures = 0
     with ThreadPoolExecutor(max_workers=MAX_PER_PROVIDER) as pool:
         futures = {
-            pool.submit(judge_one, item, judge, decoding, judge_hash): item
+            pool.submit(judge_one, item, judge, decoding, judge_hash, coded_path, failures_path): item
             for item in pending
         }
         progress = tqdm(as_completed(futures), total=len(futures), unit="call")
@@ -352,7 +382,7 @@ def main() -> int:
     print(f"coded {len(pending) - failures}/{len(pending)}")
     if failures:
         print(
-            f"{failures} failed -> {FAILURES_PATH.relative_to(ROOT)} "
+            f"{failures} failed -> {failures_path.relative_to(ROOT)} "
             f"(not marked done; rerun to retry)"
         )
     return 1 if failures else 0

@@ -42,3 +42,47 @@ the two populations are told apart.
 non-deterministic.
 
 Pre-migration snapshot: `data/coded/coded.jsonl.pre-800`.
+
+## 2026-08-11 — dropped human hand-coding (§7.5), substituted inter-judge agreement
+
+**Change.** The build guide's judge-validation gate (§7.4/7.5) — hand-code
+a 12% sample myself, compute ICC/kappa against Opus-5's scores — is cut.
+In its place: `data/coded/coded_haiku.jsonl`, the same 1920 responses
+judged a second time by Haiku under the same rubric, and
+`src/validate_interjudge.py`, which computes the same ICC(2,1)/kappa
+metrics between Opus-5 and Haiku instead of between Opus-5 and a human.
+
+**Why.** Three reasons, stated plainly rather than dressed up: personal
+bias risk in being both the rubric author and the sole hand-coder with no
+second rater to catch it, the ~2 hour time cost against a compressed
+schedule (conference the next day), and — the guide's own §13 contingency
+order permits cutting runs before validation, but is explicit that
+validation itself should be the last thing cut. This is being cut anyway,
+on the above tradeoff, with the substitution and the honest limitation
+below as the mitigation.
+
+**What this does and does not show.** Inter-judge ICC/kappa between Opus
+and Haiku measures whether the rubric is precise and unambiguous enough
+that two different models converge on close to the same scores from it.
+That is real evidence about the rubric's operational precision. It is
+**not** evidence that either judge's scores match what a human would say —
+a rubric two LLM judges apply identically could still encode a shared LLM
+bias no human coder would share. The two questions are genuinely
+different, and only the first is answered here.
+
+**Coverage note.** `coded_haiku.jsonl` already existed as a 121-row
+leftover from earlier rubric-calibration piloting, heavily skewed (64%
+claude-sonnet-5, only 13/121 rows of gpt-5.6-terra — the model carrying
+most of the headline ADG effect). Rather than validate.py's original plan
+of a stratified subsample, `judge.py` was extended with `--judge-provider`
+/ `--judge-model` / `--output` overrides (config.yaml's frozen `judge`
+section is untouched) and re-run over the full 1920 responses with Haiku,
+giving 100% coverage rather than a 12% sample — cheaper and stronger than
+the human-coding design it replaces, since a second LLM judge doesn't cost
+personal time the way a human coder does.
+
+**Limitation for the paper.** No response in this dataset has been scored
+by a human. Every stance/framing/refusal number in this project — the
+judge's, and by extension the ADG results built on it — reflects
+LLM-on-LLM agreement, not human-verified ground truth. This should be
+named explicitly as a limitation, not folded into general methods text.

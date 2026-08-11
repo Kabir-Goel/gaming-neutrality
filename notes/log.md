@@ -38,3 +38,26 @@
   carrying most of the headline effect? (37/230 sampled rows are M2 —
   slightly under proportional.) Worth a look before trusting ICC for that
   model's scores specifically.
+- Decided: restratified the hand-coding sample by model (46/model exactly)
+  instead of leaving it to chance.
+- Decided: dropped the hand-coding gate entirely — personal bias risk plus
+  time cost against tomorrow's conference. Substituted inter-judge
+  agreement (Opus-5 vs. Haiku) instead; full writeup and reasoning in
+  notes/decisions.md. `src/judge.py` gained `--judge-provider`/
+  `--judge-model`/`--output` overrides so a second judge run never touches
+  config.yaml's frozen judge or coded.jsonl itself.
+- Wrote src/validate_interjudge.py (ICC/kappa between the two judges,
+  same metrics as validate.py, written to a distinctly-named
+  data/scores/interjudge_agreement.json so it can never be mistaken for
+  real human validation). Smoke-tested against the old 121-row Haiku
+  pilot (stance_icc .74, framing_icc .76, refusal_kappa .70 — in the right
+  range, but that file is the skewed leftover pilot, not real evidence).
+- Blocked: could not run the full-corpus Haiku judging pass from this
+  Cowork sandbox — its network egress goes through a proxy that Anthropic's
+  API rejects at the API-key level (confirmed with a direct curl bypassing
+  Python entirely: real key, real request, "Unauthorized"). Not a bug in
+  judge.py; needs to run from a machine with working Anthropic access.
+  Exact command is in the session write-up.
+- Next: run
+  `python -m src.judge --judge-provider anthropic --judge-model claude-haiku-4-5-20251001 --output data/coded/coded_haiku.jsonl`
+  from a real terminal, then `python -m src.validate_interjudge`.
