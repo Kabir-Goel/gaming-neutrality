@@ -137,6 +137,7 @@ def judge_one(
     cfg_hash: str,
     coded_path: Path,
     failures_path: Path,
+    send_effort: bool = True,
 ) -> bool:
     """Code one response and append the result. Returns True on success.
 
@@ -159,6 +160,7 @@ def judge_one(
                 # Paired with the config_hash call in main(); both must use
                 # this same constant or the row misdescribes its own run.
                 anthropic_effort=models.JUDGE_EFFORT,
+                anthropic_send_effort=send_effort,
             )
             scores = parse_scores(result["text"])
             if scores is None:
@@ -170,6 +172,7 @@ def judge_one(
                     top_p=decoding["top_p"],
                     max_tokens=JUDGE_MAX_TOKENS,
                     anthropic_effort=models.JUDGE_EFFORT,
+                    anthropic_send_effort=send_effort,
                 )
                 scores = parse_scores(result["text"])
         except Exception as exc:  # noqa: BLE001 - a dead call must not stop the run
@@ -236,6 +239,16 @@ def main() -> int:
     )
     parser.add_argument(
         "--output", help="override the coded-output path (default data/coded/coded.jsonl)"
+    )
+    parser.add_argument(
+        "--judge-no-effort",
+        action="store_true",
+        help=(
+            "omit Anthropic's effort field entirely (not just fall back to a "
+            "different level) — for a judge model with no extended-thinking "
+            "control at all, e.g. Haiku, which 400s on the field outright. "
+            "This is a deliberate opt-out, not auto-detected, on purpose."
+        ),
     )
     args = parser.parse_args()
 
@@ -309,13 +322,14 @@ def main() -> int:
         )
 
     decoding = dict(config["decoding"], max_tokens=JUDGE_MAX_TOKENS)
-    # Paired with the generate() call in judge_one(): same constant, so the
-    # recorded hash describes the effort the calls actually ran at.
+    # Paired with the generate() call in judge_one(): same constants, so the
+    # recorded hash describes the call the run actually made.
     judge_hash = config_hash(
         judge["provider"],
         judge["name"],
         decoding,
         anthropic_effort=models.JUDGE_EFFORT,
+        anthropic_send_effort=not args.judge_no_effort,
     )
     expected_config = {model_id: judge_hash for model_id in by_id}
 
@@ -351,11 +365,12 @@ def main() -> int:
         if text
     ]
     scope = f" [{', '.join(active)}]" if active else ""
+    effort_desc = "none (--judge-no-effort)" if args.judge_no_effort else models.JUDGE_EFFORT
     print(
         f"{len(work)} responses, {len(done)} already coded; "
         f"{len(pending)} to judge{scope}\n"
         f"judge: {judge['provider']}/{judge['name']} "
-        f"effort={models.JUDGE_EFFORT} max_tokens={JUDGE_MAX_TOKENS} "
+        f"effort={effort_desc} max_tokens={JUDGE_MAX_TOKENS} "
         f"({MAX_PER_PROVIDER} concurrent)\n"
         f"output: {coded_path.relative_to(ROOT) if coded_path.is_relative_to(ROOT) else coded_path}"
     )
@@ -365,7 +380,10 @@ def main() -> int:
     failures = 0
     with ThreadPoolExecutor(max_workers=MAX_PER_PROVIDER) as pool:
         futures = {
-            pool.submit(judge_one, item, judge, decoding, judge_hash, coded_path, failures_path): item
+            pool.submit(
+                judge_one, item, judge, decoding, judge_hash, coded_path, failures_path,
+                not args.judge_no_effort,
+            ): item
             for item in pending
         }
         progress = tqdm(as_completed(futures), total=len(futures), unit="call")

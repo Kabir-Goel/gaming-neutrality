@@ -81,6 +81,7 @@ def config_hash(
     decoding: dict[str, Any],
     openai_reasoning_effort: str | None = None,
     anthropic_effort: str | None = None,
+    anthropic_send_effort: bool = True,
 ) -> str:
     """Hash the model and decoding settings this run will send to `provider`.
 
@@ -113,7 +114,12 @@ def config_hash(
         # opt-in, so None means "omit the field". Effort is always sent on
         # Anthropic calls, so None here means "the collection default" —
         # omitting it would silently invalidate every stored Anthropic row.
-        fields["effort"] = anthropic_effort or models.ANTHROPIC_EFFORT
+        # anthropic_send_effort=False is the one case that genuinely omits
+        # it, for a judge model with no effort control to have a level of.
+        if anthropic_send_effort:
+            fields["effort"] = anthropic_effort or models.ANTHROPIC_EFFORT
+        else:
+            fields["effort"] = None
     elif provider == "google":
         fields["thinking_level"] = models.GOOGLE_THINKING_LEVEL
     if models.disables_reasoning(provider, name):

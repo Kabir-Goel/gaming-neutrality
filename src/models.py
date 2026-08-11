@@ -368,6 +368,7 @@ def generate(
     max_tokens: int,
     openai_reasoning_effort: str | None = None,
     anthropic_effort: str | None = None,
+    anthropic_send_effort: bool = True,
 ) -> dict[str, Any]:
     """Send a single-turn prompt to `model` and return a normalized record.
 
@@ -380,6 +381,14 @@ def generate(
     run deeper than corpus collection without the two sharing a constant.
     Note that decoding state generally is already per (provider, model): what
     one model refuses is never applied to another.
+
+    `anthropic_send_effort=False` omits the effort field outright, for a
+    model with no extended-thinking control at all (e.g. Haiku 4.5) rather
+    than one whose effort level is merely being tuned. Effort deliberately
+    is not in _TUNABLE (below): a model that refuses a *level* should fail
+    loudly, not silently fall back and risk the truncation effort exists to
+    prevent. Sending no effort field at all is a different, explicit
+    decision a caller opts into, not an auto-adaptation.
 
     Returns keys: text, model_version, finish_reason, latency_ms. Retries up
     to 5 attempts with exponential backoff on timeouts, rate limits and 5xx;
@@ -395,20 +404,22 @@ def generate(
     key = (provider, model)
 
     if provider == "anthropic":
+        anthropic_params = {
+            "temperature": temperature,
+            "top_p": top_p,
+            "max_tokens": max_tokens,
+        }
+        if anthropic_send_effort:
+            # Plain string so it lands in _SENT (and the response rows) as
+            # JSON; _post_anthropic nests it under output_config. Kept out
+            # of _TUNABLE for the same reason as thinking_level: a model
+            # that refuses it should fail loudly rather than silently
+            # reverting to the provider default. Callers that pass an
+            # explicit effort (the judge) override the collection default.
+            anthropic_params["effort"] = anthropic_effort or ANTHROPIC_EFFORT
         response, latency_ms = _call(
             key,
-            {
-                "temperature": temperature,
-                "top_p": top_p,
-                "max_tokens": max_tokens,
-                # Plain string so it lands in _SENT (and the response rows) as
-                # JSON; _post_anthropic nests it under output_config. Kept out
-                # of _TUNABLE for the same reason as thinking_level: a model
-                # that refuses it should fail loudly rather than silently
-                # reverting to the provider default. Callers that pass an
-                # explicit effort (the judge) override the collection default.
-                "effort": anthropic_effort or ANTHROPIC_EFFORT,
-            },
+            anthropic_params,
             lambda **p: _post_anthropic(model, prompt, **p),
         )
         return {
