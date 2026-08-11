@@ -1,11 +1,19 @@
 """Draw the blinded human-coding sample for judge validation (build guide §7.4).
 
 Samples config.validation.sample_frac of coded.jsonl, seeded from
-config.seed. Each sampled row gets an opaque numeric code with no
-relationship to its real id — the real id (`{issue}__{persona}__{frame}__
-{model}__r{run}`) spells out all four design factors, so using it as the
-row label would let a human coder infer persona/frame/model just from the
-label, defeating the point of blind coding.
+config.seed, stratified by model: each model is sampled at the same
+sample_frac independently, rather than sample_frac drawn once from the
+pooled 1920 rows. An unstratified draw can land anywhere from ~37 to ~52
+rows for a given model by chance; stratifying pins every model to ~46 (12%
+of its 384 rows) so a model that happens to carry most of the headline
+effect — gpt-5.6-terra does here — isn't left thinly validated by luck of
+the draw.
+
+Each sampled row gets an opaque numeric code with no relationship to its
+real id — the real id (`{issue}__{persona}__{frame}__{model}__r{run}`)
+spells out all four design factors, so using it as the row label would let
+a human coder infer persona/frame/model just from the label, defeating the
+point of blind coding.
 
 Writes two files:
   data/coded/to_hand_code.csv   — code, response_text, stance, framing,
@@ -89,10 +97,22 @@ def main() -> int:
         )
         return 1
 
-    n = round(len(coded) * frac)
     rng = np.random.default_rng(seed)
-    sample_idx = rng.choice(len(coded), size=n, replace=False)
-    sample = [coded[i] for i in sample_idx]
+
+    # Stratify by model_id, in config order, so the draw is reproducible
+    # regardless of coded.jsonl's on-disk row order.
+    model_ids = [m["id"] for m in config["models"]]
+    by_model: dict[str, list[dict]] = {mid: [] for mid in model_ids}
+    for row in coded:
+        by_model[responses[row["id"]]["model_id"]].append(row)
+
+    sample = []
+    for mid in model_ids:
+        group = by_model[mid]
+        n_model = round(len(group) * frac)
+        idx = rng.choice(len(group), size=n_model, replace=False)
+        sample.extend(group[i] for i in idx)
+    n = len(sample)
 
     # Opaque codes: a random permutation of a 6-digit range, independent of
     # sample order and of id. No arithmetic relationship to row position,
@@ -120,7 +140,9 @@ def main() -> int:
             f.write(json.dumps({"code": row["code"], "id": row["id"]}) + "\n")
 
     leaked = LEAKY_COLUMNS & set(next(csv.reader(OUT_CSV.open())))
-    print(f"sample size: {n} / {len(coded)} coded rows ({frac:.0%})")
+    print(f"sample size: {n} / {len(coded)} coded rows ({frac:.0%}), stratified by model:")
+    for mid in model_ids:
+        print(f"  {mid}: {round(len(by_model[mid]) * frac)} / {len(by_model[mid])}")
     print(f"wrote {OUT_CSV.relative_to(ROOT)} (columns: code, response_text, stance, framing, refusal)")
     print(f"wrote {OUT_KEY.relative_to(ROOT)} (gitignored — do not open while hand-coding)")
     print(f"leaked design-factor columns in the CSV: {leaked or 'none'}")
